@@ -79,6 +79,32 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 
+def test_read_items_limit_exceeds_max(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    for limit in (101, 1000000):
+        response = client.get(
+            f"{settings.API_V1_STR}/items/",
+            headers=normal_user_token_headers,
+            params={"limit": limit},
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail[0]["type"] == "less_than_equal"
+        assert detail[0]["loc"] == ["query", "limit"]
+
+
+def test_read_items_limit_at_max(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=normal_user_token_headers,
+        params={"limit": 100},
+    )
+    assert response.status_code == 200
+
+
 def test_update_item(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
