@@ -198,6 +198,31 @@ def test_retrieve_users(
         assert "email" in item
 
 
+def test_read_users_limit_exceeds_max(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.get(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        params={"limit": 101},
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail[0]["type"] == "less_than_equal"
+    assert detail[0]["loc"] == ["query", "limit"]
+
+
+def test_read_users_limit_at_max(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.get(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        params={"limit": 100},
+    )
+    assert r.status_code == 200
+
+
 def test_update_user_me(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
