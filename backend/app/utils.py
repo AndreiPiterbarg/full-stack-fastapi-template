@@ -1,10 +1,12 @@
 import logging
+import smtplib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
+from email.utils import formataddr
 from pathlib import Path
 from typing import Any
 
-import emails
 import jwt
 from jinja2 import Template
 from jwt.exceptions import InvalidTokenError
@@ -14,6 +16,8 @@ from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+SMTP_TIMEOUT_SECONDS = 5
 
 
 @dataclass
@@ -39,21 +43,28 @@ def send_email(
 ) -> None:
     assert settings.emails_enabled, "no provided configuration for email variables"
     assert settings.EMAILS_FROM_EMAIL  # For type checker
-    message = emails.message.Message(
-        subject=subject,
-        html=html_content,
-        mail_from=(settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL),
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = formataddr(
+        (settings.EMAILS_FROM_NAME, settings.EMAILS_FROM_EMAIL)
     )
-    smtp_options = {"host": settings.SMTP_HOST, "port": settings.SMTP_PORT}
-    if settings.SMTP_TLS:
-        smtp_options["tls"] = True
-    elif settings.SMTP_SSL:
-        smtp_options["ssl"] = True
-    if settings.SMTP_USER:
-        smtp_options["user"] = settings.SMTP_USER
-    if settings.SMTP_PASSWORD:
-        smtp_options["password"] = settings.SMTP_PASSWORD
-    response = message.send(to=email_to, smtp=smtp_options)
+    message["To"] = email_to
+    message.set_content(html_content, subtype="html")
+    assert settings.SMTP_HOST  # For type checker
+    smtp_cls = smtplib.SMTP_SSL if settings.SMTP_SSL else smtplib.SMTP
+    try:
+        with smtp_cls(
+            settings.SMTP_HOST, settings.SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS
+        ) as smtp:
+            if settings.SMTP_TLS and not settings.SMTP_SSL:
+                smtp.starttls()
+            if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            response = smtp.send_message(message)
+    except (smtplib.SMTPException, OSError) as e:
+        # Fail silently, matching the previous `emails` package behavior
+        logger.error(f"send email failed: {e!r}")
+        return
     logger.info(f"send email result: {response}")
 
 
